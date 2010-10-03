@@ -1,0 +1,24 @@
+[components]
+searchhyperestraier.searchhyperestraier.searchattachmenthyperestraiermodule = enabled
+searchhyperestraier.searchhyperestraier.searchchangesethyperestraiermodule = enabled
+searchhyperestraier.searchhyperestraier.searchdocumenthyperestraiermodule = enabled
+searchhyperestraier.searchhyperestraier.searchhyperestraiermodule = enabled
+
+[searchhyperestraier]
+.index_path = C:\TracLight\search\repos\aaa\casket
+.replace_left = C:\TracLight\search\repos\aaa\rep
+.url_left = /trunk
+
+.cs_index_path = C:\TracLight\search\changeset\aaa\casket
+
+bbb.index_path = C:\TracLight\search\repos\bbb\casket
+bbb.replace_left = C:\TracLight\search\repos\bbb\rep
+bbb.url_left = /trunk
+
+bbb.cs_index_path = C:\TracLight\search\changeset\bbb\casket
+
+att_index_path = C:\TracLight\search\attach\aaa\casket
+
+doc_index_path = C:\TracLight\search\doc\aaa\casket
+doc_replace_left = C:\TracLight\projects\doc\aaa
+doc_url_left = /doc/aaa

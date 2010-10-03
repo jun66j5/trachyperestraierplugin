@@ -1,0 +1,99 @@
+call setenv.bat
+
+if not DEFINED TL_PROJECT_HOME set TL_PROJECT_HOME=%TRAC_LIGHT_HOME%\projects
+set EXT_STR=.pdf,.rtf,.doc,.xls,.ppt,.c,.asm,.py,.txt
+
+set PROJECT_NAME=aaa
+
+rem === repository and changeset search ===
+rem default repository
+set REPO_NAME=%PROJECT_NAME%
+CALL :SUB_REPOS
+CALL :SUB_CHANGESET
+
+rem repository "bbb"
+set REPO_NAME=bbb
+CALL :SUB_REPOS
+CALL :SUB_CHANGESET
+
+rem === attachment search ===
+set ATT_FOLDER=%TL_PROJECT_HOME%\trac\%PROJECT_NAME%\attachments
+set ATT_INDEX_FOLDER=%TRAC_LIGHT_HOME%\search\attach\%PROJECT_NAME%\casket
+estcmd gather -cl -cm -fx %EXT_STR% T@estxfilt -ic CP932  -pc CP932  -sd %ATT_INDEX_FOLDER% %ATT_FOLDER% | find "registered"
+IF %ERRORLEVEL% NEQ 0 goto ATT_LABEL_END
+estcmd purge -cl %ATT_INDEX_FOLDER%
+estcmd optimize %ATT_INDEX_FOLDER%
+:ATT_LABEL_END
+rem === document search ===
+
+rem ==== doc\project ====
+set DOC_FOLDER=%TL_PROJECT_HOME%\doc\%PROJECT_NAME%
+set DOC_INDEX_FOLDER=%TRAC_LIGHT_HOME%\search\doc\%PROJECT_NAME%\casket
+
+rem ==== doc ====
+rem set DOC_FOLDER=%TL_PROJECT_HOME%\doc
+rem set DOC_INDEX_FOLDER=%TRAC_LIGHT_HOME%\search\doc\casket
+
+estcmd gather -cl -cm -fx %EXT_STR% T@estxfilt -ic CP932  -pc CP932  -sd %DOC_INDEX_FOLDER% %DOC_FOLDER% | find "registered"
+IF %ERRORLEVEL% NEQ 0 goto DOC_LABEL_END
+estcmd purge -cl %DOC_INDEX_FOLDER%
+estcmd optimize %DOC_INDEX_FOLDER%
+:DOC_LABEL_END
+
+
+
+rem == finish ==
+EXIT /B
+
+rem == subroutine ==
+:SUB_REPOS
+rem === repository search ===
+set MR_REP_URI=%REPO_NAME%/trunk
+set MR_FOLDER=%TRAC_LIGHT_HOME%\search\repos\%REPO_NAME%
+set MR_EXPORT_FOLDER=%MR_FOLDER%\rep
+set MR_INDEX_FOLDER=%MR_FOLDER%\casket
+set MR_REPOS_FOLDER=%TL_PROJECT_HOME%/svn/%REPO_NAME%
+set MR_REPOS_URI=file:///%TL_PROJECT_HOME:\=/%/svn/%MR_REP_URI%
+pushd %MR_FOLDER%
+for %%i in (*.txt) do set REVISION=%%i
+popd
+set REVISION=%REVISION:.txt=%
+for /F %%i in ('svnlook youngest %MR_REPOS_FOLDER%') do set LASTREVISION=%%i
+if %REVISION% EQU %LASTREVISION% goto :MR_LABEL_END
+IF EXIST %MR_EXPORT_FOLDER%\CON rmdir /S /Q %MR_EXPORT_FOLDER%
+svn export %MR_REPOS_URI% %MR_EXPORT_FOLDER%
+IF EXIST %MR_FOLDER%\*.txt del %MR_FOLDER%\*.txt
+type nul > %MR_FOLDER%\%LASTREVISION%.txt
+estcmd gather -cl -cm -fx %EXT_STR% T@estxfilt -ic CP932  -pc CP932  -sd %MR_INDEX_FOLDER% %MR_EXPORT_FOLDER%
+estcmd purge -cl %MR_INDEX_FOLDER%
+estcmd optimize %MR_INDEX_FOLDER%
+:MR_LABEL_END
+EXIT /B
+
+:SUB_CHANGESET
+rem === changeset search ===
+set CS_REPOS_URI=file:///%TL_PROJECT_HOME:\=/%/svn/%REPO_NAME%
+set CS_FOLDER=%TRAC_LIGHT_HOME%\search\changeset\%REPO_NAME%
+set CS_EXPORT_FOLDER=%CS_FOLDER%\rep
+set CS_INDEX_FOLDER=%CS_FOLDER%\casket
+set CS_REPOS_FOLDER=%TL_PROJECT_HOME%/svn/%REPO_NAME%
+
+rem ==== make changeset foler/text file ====
+for /F %%i in ('svnlook youngest %CS_REPOS_FOLDER%') do set LASTREVISION=%%i
+pushd %CS_FOLDER%
+for %%i in (*.txt) do set REVISION=%%i
+popd
+set REVISION=%REVISION:.txt=%
+if %REVISION% EQU %LASTREVISION% goto :CS_LABEL_END
+
+python MkCommentFile.py %CS_REPOS_FOLDER% %CS_EXPORT_FOLDER% %REVISION% %LASTREVISION%
+
+IF EXIST %CS_FOLDER%\*.txt del %CS_FOLDER%\*.txt
+type nul > %CS_FOLDER%\%LASTREVISION%.txt
+rem ==== make changeset index ====
+estcmd gather -cl -cm -fx %EXT_STR% T@estxfilt -ic CP932  -pc CP932  -sd %CS_INDEX_FOLDER% %CS_EXPORT_FOLDER%
+estcmd purge -cl %CS_INDEX_FOLDER%
+estcmd optimize %CS_INDEX_FOLDER%
+:CS_LABEL_END
+EXIT /B
+
