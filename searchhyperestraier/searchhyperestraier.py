@@ -7,11 +7,13 @@ import time
 import urllib
 
 from trac.core import Component, implements
-from trac.config import BoolOption, Option
+from trac.attachment import Attachment
+from trac.config import BoolOption, Option, PathOption
+from trac.db.api import get_column_names
+from trac.resource import get_resource_url, get_resource_shortname
 from trac.search.api import ISearchSource
 from trac.util import NaivePopen
-from trac.util.datefmt import to_datetime, utc
-from trac.util.text import to_unicode
+from trac.util.datefmt import from_utimestamp, to_datetime, utc
 from trac.versioncontrol.api import RepositoryManager
 
 
@@ -22,10 +24,11 @@ class SearchHyperEstraierModule(Component):
     estcmd_path = Option('searchhyperestraier', 'estcmd_path', 'estcmd')
     estcmd_arg = Option('searchhyperestraier', 'estcmd_arg',
                         'search -vx -sf -ic Shift_JIS')
-    estcmd_encode = Option('searchhyperestraier', 'estcmd_encode', 'mbcs')
+    estcmd_encode = Option('searchhyperestraier', 'estcmd_encode',
+                           'mbcs' if os.name == 'nt' else 'utf-8')
     browse_trac = BoolOption('searchhyperestraier', 'browse_trac', 'enabled')
-    att_index_path = Option('searchhyperestraier', 'att_index_path', '')
-    doc_index_path = Option('searchhyperestraier', 'doc_index_path', '')
+    att_index_path = PathOption('searchhyperestraier', 'att_index_path', '')
+    doc_index_path = PathOption('searchhyperestraier', 'doc_index_path', '')
     doc_replace_left = Option('searchhyperestraier', 'doc_replace_left', '')
     doc_url_left = Option('searchhyperestraier', 'doc_url_left', 'doc')
 
@@ -89,11 +92,11 @@ class SearchHyperEstraierModule(Component):
                 title = ""
                 date = 0
                 detail = ""
-                author = "不明"
+                author = u"不明"
 
                 #detailを生成
                 elem_array =  element.getElementsByTagName("snippet")
-                detail = self._get_innerText("",elem_array)
+                detail = _get_inner_text(elem_array)
 
                 #その他の属性を生成
                 attrelem_array = element.getElementsByTagName("attribute")
@@ -123,17 +126,8 @@ class SearchHyperEstraierModule(Component):
                         date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
                         self.log.debug('date:%r', attr_value)
                         date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
-                yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
+                yield(url,title,date,author,detail)
         return
-
-    #XMLのElementを再帰的に探してテキストを生成
-    def _get_innerText(self,text,node_array):
-        for node in node_array:
-            if node.nodeType == node.TEXT_NODE:
-                text = text + unicode(node.data).encode('utf-8')
-            else:
-                text = self._get_innerText(text,node.childNodes)
-        return text
 
 
 class SearchChangesetHyperEstraierModule(Component):
@@ -195,11 +189,11 @@ class SearchChangesetHyperEstraierModule(Component):
                 title = ""
                 date = 0
                 detail = ""
-                author = "不明"
+                author = u"不明"
 
                 #detailを生成
                 elem_array =  element.getElementsByTagName("snippet")
-                detail = self._get_innerText("",elem_array)
+                detail = _get_inner_text(elem_array)
 
                 #その他の属性を生成
                 attrelem_array = element.getElementsByTagName("attribute")
@@ -221,17 +215,8 @@ class SearchChangesetHyperEstraierModule(Component):
                         date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
                         self.log.debug('date:%r', attr_value)
                         date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
-                yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
+                yield(url,title,date,author,detail)
         return
-
-    #XMLのElementを再帰的に探してテキストを生成
-    def _get_innerText(self,text,node_array):
-        for node in node_array:
-            if node.nodeType == node.TEXT_NODE:
-                text = text + unicode(node.data).encode('utf-8')
-            else:
-                text = self._get_innerText(text,node.childNodes)
-        return text
 
 
 class SearchAttachmentHyperEstraierModule(Component):
@@ -241,7 +226,8 @@ class SearchAttachmentHyperEstraierModule(Component):
     # ISearchProvider methods
     def get_search_filters(self, req):
         mod = SearchHyperEstraierModule(self.env)
-        if mod.att_index_path:
+        att_index_path = mod.att_index_path
+        if att_index_path and os.path.exists(att_index_path):
             yield ('attachmenthyperest', u'he:添付ファイル', 0)
 
     def get_search_results(self, req, terms, filters):
@@ -253,7 +239,6 @@ class SearchAttachmentHyperEstraierModule(Component):
         estcmd_arg = mod.estcmd_arg
         estcmd_encode = mod.estcmd_encode
         att_index_path = mod.att_index_path
-        att_replace_left = os.path.join(os.path.normpath(self.env.path), 'attachments')
 
         #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,att_index_path,unicode(query,'utf-8').encode('CP932'))
         qline = ' '.join(terms)
@@ -269,6 +254,36 @@ class SearchAttachmentHyperEstraierModule(Component):
         if not np.out:  #添付ファイルフォルダに何も入ってない
             return
 
+        db_version = self._get_db_version()
+        if db_version >= 29:  # Trac 1.0 or later
+            def attachment_path(env_path, row):
+                path = Attachment._get_path(env_path, row['type'],
+                                            row['id'], row['filename'])
+                path = path[len(att_replace_left) + 1:]
+                return path.replace('\\', '/')
+        else:
+            def attachment_path(env_path, row):
+                att = Attachment(self.env)
+                path = att._get_path(row['type'], row['id'],
+                                     row['filename'])
+                path = path[len(att_replace_left) + 1:]
+                return path.replace('\\', '/')
+
+        def resolver_attachment_row():
+            db = self.env.get_read_db()
+            cursor = db.cursor()
+            cursor.execute("SELECT * FROM attachment")
+            columns = get_column_names(cursor)
+            env_path = os.path.normpath(self.env.path)
+            paths = {}
+            for row in cursor:
+                row = dict(zip(columns, row))
+                paths[attachment_path(env_path, row)] = row
+            return paths.get
+
+        att_replace_left = self._get_attachments_dir(db_version)
+        resolve_attachment_row = resolver_attachment_row()
+
         dom = parseString(np.out)
         root = dom.documentElement
         #estresult_node = root.getElementsByTagName("document")[0]
@@ -276,44 +291,49 @@ class SearchAttachmentHyperEstraierModule(Component):
         for element in element_array:
             url = ""
             title = ""
-            date = 0
+            date = datetime.fromtimestamp(0, utc)
             detail = ""
-            author = "不明"
+            author = u"不明"
 
-            #detailを生成
-            elem_array =  element.getElementsByTagName("snippet")
-            detail = self._get_innerText("",elem_array)
+            elem_array = element.getElementsByTagName("snippet")
+            detail = _get_inner_text(elem_array)
 
             #その他の属性を生成
             attrelem_array = element.getElementsByTagName("attribute")
             for attrelem in attrelem_array:
                 attr_name = attrelem.getAttribute("name")
                 attr_value = unicode(attrelem.getAttribute("value")) #添付ファイルはパスがquoteされたものになっている
-                #URLとタイトルを生成
                 if attr_name == "_lreal":
-                    attr_value=attr_value[len(att_replace_left):].replace("\\","/")
-                    url = self.env.href.attachment("") #attachmentまでのurl取得
-                    url = url +attr_value[1:] #[1:]は先頭の"/"を除くため
-                    #そのままunquoteすると文字化けするから
-                    title = urllib.unquote(attr_value).encode('raw_unicode_escape').decode('utf-8')
-                    title = "attachment"+ title
-                    title = title.replace("/",":")
-                #更新日時を生成
-                elif attr_name =="@mdate":
-                    date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
-                    self.log.debug('date:%r', attr_value)
-                    date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
-            yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
+                    attr_value = attr_value[len(att_replace_left) + 1:]
+                    attr_value = attr_value.replace('\\', '/')
+                    row = resolve_attachment_row(attr_value)
+                    att = Attachment(self.env, row['type'], row['id'],
+                                     row['filename'])
+                    resource = att.resource
+                    url = get_resource_url(self.env, resource, req.href)
+                    title = get_resource_shortname(self.env, resource)
+                    date = from_utimestamp(row['time'])
+                    author = row['author']
+                    yield url, title, date, author, detail
+                    break
         return
 
-    #XMLのElementを再帰的に探してテキストを生成
-    def _get_innerText(self,text,node_array):
-        for node in node_array:
-            if node.nodeType == node.TEXT_NODE:
-                text = text + unicode(node.data).encode('utf-8')
-            else:
-                text = self._get_innerText(text,node.childNodes)
-        return text
+    # Internal methods
+
+    def _get_db_version(self):
+        if hasattr(self.env, 'database_version'):
+            return self.env.database_version
+        else:
+            return self.env.get_version()
+
+    def _get_attachments_dir(self, version):
+        if hasattr(self.env, 'attachments_dir'):  # Trac 1.3.1 or later
+            return self.env.attachments_dir
+        env_path = os.path.normpath(self.env.path)
+        if version >= 29:  # Trac 1.0 or later
+            return os.path.join(env_path, 'files', 'attachments')
+        else:
+            return os.path.join(env_path, 'attachments')
 
 
 class SearchDocumentHyperEstraierModule(Component):
@@ -323,7 +343,8 @@ class SearchDocumentHyperEstraierModule(Component):
     # ISearchProvider methods
     def get_search_filters(self, req):
         mod = SearchHyperEstraierModule(self.env)
-        if mod.doc_index_path and mod.doc_replace_left and mod.doc_url_left:
+        if mod.doc_index_path and mod.doc_replace_left and \
+                mod.doc_url_left and os.path.exists(mod.doc_index_path):
             yield ('documenthyperest', u'he:ドキュメント', 0)
 
     def get_search_results(self, req, terms, filters):
@@ -360,11 +381,11 @@ class SearchDocumentHyperEstraierModule(Component):
             title = ""
             date = 0
             detail = ""
-            author = "不明"
+            author = u"不明"
 
             #detailを生成
             elem_array =  element.getElementsByTagName("snippet")
-            detail = self._get_innerText("",elem_array)
+            detail = _get_inner_text(elem_array)
 
             #その他の属性を生成
             attrelem_array = element.getElementsByTagName("attribute")
@@ -389,14 +410,17 @@ class SearchDocumentHyperEstraierModule(Component):
                     date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
                     self.log.debug('date:%r', attr_value)
                     date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
-            yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
+            yield(url,title,date,author,detail)
         return
 
-    #XMLのElementを再帰的に探してテキストを生成
-    def _get_innerText(self,text,node_array):
-        for node in node_array:
-            if node.nodeType == node.TEXT_NODE:
-                text = text + unicode(node.data).encode('utf-8')
-            else:
-                text = self._get_innerText(text,node.childNodes)
-        return text
+
+def _get_inner_text(node_array):
+    def to_text(node):
+        if node.nodeType == node.TEXT_NODE:
+            text = node.data
+            if not isinstance(text, unicode):
+                text = unicode(text, 'utf-8')
+            return text
+        else:
+            return _get_inner_text(node.childNodes)
+    return u''.join(to_text(node) for node in node_array)
