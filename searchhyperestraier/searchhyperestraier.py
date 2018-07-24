@@ -70,11 +70,10 @@ class SearchHyperEstraierModule(Component):
             #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,index_path,unicode(query,'utf-8').encode('CP932'))
             qline = ' '.join(terms)
             cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,index_path,qline)
-            self.log.debug('SearchHyperEstraier:%s' % cmdline)
+            self.log.debug('SearchHyperEstraier:%r', cmdline)
             cmdline = unicode(cmdline).encode(estcmd_encode)
             np = NaivePopen(cmdline)
-            #self.log.debug('Result:%s' % unicode(np.out,'utf-8').encode('mbcs'))
-            #self.log.debug('Result:%s' % np.out)
+            #self.log.debug('Result:%s', np.out)
             if np.errorlevel or np.err:
                 err = 'Running (%s) failed: %s, %s.' % (cmdline, np.errorlevel,
                                                         np.err)
@@ -86,7 +85,6 @@ class SearchHyperEstraierModule(Component):
             #estresult_node = root.getElementsByTagName("document")[0]
             element_array = root.getElementsByTagName("document")
             for element in element_array:
-                #self.log.debug('Result:%s' % 'hoge')
                 url = ""
                 title = ""
                 date = 0
@@ -123,7 +121,7 @@ class SearchHyperEstraierModule(Component):
                     #更新日時を生成
                     elif attr_name =="@mdate":
                         date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
-                        self.log.debug('date:%s' % attr_value)
+                        self.log.debug('date:%r', attr_value)
                         date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
                 yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
         return
@@ -165,7 +163,7 @@ class SearchChangesetHyperEstraierModule(Component):
             if RepositoryManager(self.env).get_repository(mrepstr) is None: #mrepstrのrepositoryがない
                 continue
             repoinfo = RepositoryManager(self.env).get_all_repositories().get(mrepstr, {})
-            #self.log.debug('type:%s' % repoinfo.get('type'))
+            #self.log.debug('type:%r', repoinfo.get('type'))
             if repoinfo.get('type') != 'direct-svnfs':#'direct-svnfs'のリポジトリでない
                 continue
             #インデックスのパス
@@ -178,11 +176,10 @@ class SearchChangesetHyperEstraierModule(Component):
             #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,cs_index_path,unicode(query,'utf-8').encode('CP932'))
             qline = ' '.join(terms)
             cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,cs_index_path,qline)
-            self.log.debug('SearchChangesetHyperEstraier:%s' % cmdline)
+            self.log.debug('SearchChangesetHyperEstraier:%r', cmdline)
             cmdline = unicode(cmdline).encode(estcmd_encode)
             np = NaivePopen(cmdline)
-            #self.log.debug('Result:%s' % unicode(np.out,'utf-8').encode('mbcs'))
-            #self.log.debug('Result:%s' % np.out)
+            #self.log.debug('Result:%r', np.out)
             if np.errorlevel or np.err:
                 err = 'Running (%s) failed: %s, %s.' % (cmdline, np.errorlevel,
                                                         np.err)
@@ -194,7 +191,6 @@ class SearchChangesetHyperEstraierModule(Component):
             #estresult_node = root.getElementsByTagName("document")[0]
             element_array = root.getElementsByTagName("document")
             for element in element_array:
-                #self.log.debug('Result:%s' % 'hoge')
                 url = ""
                 title = ""
                 date = 0
@@ -223,7 +219,7 @@ class SearchChangesetHyperEstraierModule(Component):
                     #更新日時を生成
                     elif attr_name =="@mdate":
                         date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
-                        self.log.debug('date:%s' % attr_value)
+                        self.log.debug('date:%r', attr_value)
                         date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
                 yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
         return
@@ -262,11 +258,10 @@ class SearchAttachmentHyperEstraierModule(Component):
         #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,att_index_path,unicode(query,'utf-8').encode('CP932'))
         qline = ' '.join(terms)
         cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,att_index_path,qline)
-        self.log.debug('SearchHyperEstraier:%s' % cmdline)
+        self.log.debug('SearchHyperEstraier:%r', cmdline)
         cmdline = unicode(cmdline).encode(estcmd_encode)
         np = NaivePopen(cmdline)
-        #self.log.debug('Result:%s' % unicode(np.out,'utf-8').encode('mbcs'))
-        #self.log.debug('Result:%s' % np.out)
+        #self.log.debug('Result:%r', np.out)
         if np.errorlevel or np.err:
             err = 'Running (%s) failed: %s, %s.' % (cmdline, np.errorlevel,
                                                     np.err)
@@ -279,7 +274,6 @@ class SearchAttachmentHyperEstraierModule(Component):
         #estresult_node = root.getElementsByTagName("document")[0]
         element_array = root.getElementsByTagName("document")
         for element in element_array:
-            #self.log.debug('Result:%s' % 'hoge')
             url = ""
             title = ""
             date = 0
@@ -307,7 +301,7 @@ class SearchAttachmentHyperEstraierModule(Component):
                 #更新日時を生成
                 elif attr_name =="@mdate":
                     date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
-                    self.log.debug('date:%s' % attr_value)
+                    self.log.debug('date:%r', attr_value)
                     date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
             yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
         return
@@ -347,11 +341,10 @@ class SearchDocumentHyperEstraierModule(Component):
         #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,doc_index_path,unicode(query,'utf-8').encode('CP932'))
         qline = ' '.join(terms)
         cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,doc_index_path,qline)
-        self.log.debug('SearchHyperEstraier:%s' % cmdline)
+        self.log.debug('SearchHyperEstraier:%r', cmdline)
         cmdline = unicode(cmdline).encode(estcmd_encode)
         np = NaivePopen(cmdline)
-        #self.log.debug('Result:%s' % unicode(np.out,'utf-8').encode('mbcs'))
-        #self.log.debug('Result:%s' % np.out)
+        #self.log.debug('Result:%r', np.out)
         if np.errorlevel or np.err:
             err = 'Running (%s) failed: %s, %s.' % (cmdline, np.errorlevel,
                                                     np.err)
@@ -363,7 +356,6 @@ class SearchDocumentHyperEstraierModule(Component):
         #estresult_node = root.getElementsByTagName("document")[0]
         element_array = root.getElementsByTagName("document")
         for element in element_array:
-            #self.log.debug('Result:%s' % 'hoge')
             url = ""
             title = ""
             date = 0
@@ -395,7 +387,7 @@ class SearchDocumentHyperEstraierModule(Component):
                 #更新日時を生成
                 elif attr_name =="@mdate":
                     date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
-                    self.log.debug('date:%s' % attr_value)
+                    self.log.debug('date:%r', attr_value)
                     date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
             yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
         return
