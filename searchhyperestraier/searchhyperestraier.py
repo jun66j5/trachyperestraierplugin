@@ -7,6 +7,7 @@ import time
 import urllib
 
 from trac.core import Component, implements
+from trac.config import BoolOption, Option
 from trac.search.api import ISearchSource
 from trac.util import NaivePopen
 from trac.util.datefmt import to_datetime, utc
@@ -18,6 +19,16 @@ class SearchHyperEstraierModule(Component):
 
     implements(ISearchSource)
 
+    estcmd_path = Option('searchhyperestraier', 'estcmd_path', 'estcmd')
+    estcmd_arg = Option('searchhyperestraier', 'estcmd_arg',
+                        'search -vx -sf -ic Shift_JIS')
+    estcmd_encode = Option('searchhyperestraier', 'estcmd_encode', 'mbcs')
+    browse_trac = BoolOption('searchhyperestraier', 'browse_trac', 'enabled')
+    att_index_path = Option('searchhyperestraier', 'att_index_path', '')
+    doc_index_path = Option('searchhyperestraier', 'doc_index_path', '')
+    doc_replace_left = Option('searchhyperestraier', 'doc_replace_left', '')
+    doc_url_left = Option('searchhyperestraier', 'doc_url_left', 'doc')
+
     # ISearchProvider methods
     def get_search_filters(self, req):
         if req.perm.has_permission('BROWSER_VIEW'):
@@ -26,15 +37,11 @@ class SearchHyperEstraierModule(Component):
     def get_search_results(self, req, terms, filters):
         if not 'repositoryhyperest' in filters:
             return
-        #estcmd.exeのパス
-        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd')
-        #estcmd.exeの引数
-        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS')
-        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs')
-        #Tracのブラウザへのリンクを作るか否か。
-        #enabled:Tracのブラウザへのリンクを作る
-        #上記以外:replace_left,url_leftで指定したURLへのリンクを作る
-        browse_trac = self.env.config.get('searchhyperestraier', 'browse_trac','enabled')
+
+        estcmd_path = self.estcmd_path
+        estcmd_arg = self.estcmd_arg
+        estcmd_encode = self.estcmd_encode
+        browse_trac = self.browse_trac
 
         #for multi repos
         for option in self.config['searchhyperestraier']:
@@ -45,17 +52,17 @@ class SearchHyperEstraierModule(Component):
             if RepositoryManager(self.env).get_repository(mrepstr) is None: #mrepstrのrepositoryがない
                 continue
             #インデックスのパス
-            index_path = self.env.config.get('searchhyperestraier', mrepstr+'.index_path','')
-            if index_path == '':#mrepstr+'.index_path'がない
+            index_path = self.config.get('searchhyperestraier', mrepstr+'.index_path')
+            if not index_path:  #mrepstr+'.index_path'がない
                 continue
             #検索結果のパスの頭で削る文字列
-            replace_left = self.env.config.get('searchhyperestraier', mrepstr+'.replace_left','')
-            if replace_left == '': #mrepstr+'.replace_left'がない
+            replace_left = self.config.get('searchhyperestraier', mrepstr+'.replace_left')
+            if not replace_left:  #mrepstr+'.replace_left'がない
                 continue
             #URLを生成する際に頭につける文字列
             #browse_trac=enabledの場合は/がリポジトリのルートになるように
-            url_left = self.env.config.get('searchhyperestraier', mrepstr+'.url_left','')
-            if url_left == '': #mrepstr+'.url_left'がない
+            url_left = self.config.get('searchhyperestraier', mrepstr+'.url_left')
+            if not url_left:  #mrepstr+'.url_left'がない
                 continue
             if mrepstr != '': #defaultでない
                 url_left = '/' + mrepstr + url_left
@@ -107,7 +114,7 @@ class SearchHyperEstraierModule(Component):
                     if attr_name == "_lpath": #s-jisをquoteしたもの("file:///C|/TracLight/…"の形式)
                         attr_value = urllib.unquote(attr_value).encode('raw_unicode_escape').decode('CP932')
                         attr_value = attr_value[(len('file:///')+len(replace_left)):]
-                        if browse_trac == "enabled":
+                        if browse_trac:
                             url = self.env.href.browser(url_left + attr_value)
                             title = "source:"+ urllib.unquote(url).encode('raw_unicode_escape').decode('utf-8')
                         else:
@@ -130,6 +137,7 @@ class SearchHyperEstraierModule(Component):
                 text = self._get_innerText(text,node.childNodes)
         return text
 
+
 class SearchChangesetHyperEstraierModule(Component):
 
     implements(ISearchSource)
@@ -142,11 +150,11 @@ class SearchChangesetHyperEstraierModule(Component):
     def get_search_results(self, req, terms, filters):
         if not 'changesethyperest' in filters:
             return
-        #estcmd.exeのパス
-        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd')
-        #estcmd.exeの引数
-        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS')
-        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs')
+
+        mod = SearchHyperEstraierModule(self.env)
+        estcmd_path = mod.estcmd_path
+        estcmd_arg = mod.estcmd_arg
+        estcmd_encode = mod.estcmd_encode
 
         #for multi repos
         for option in self.config['searchhyperestraier']:
@@ -161,8 +169,8 @@ class SearchChangesetHyperEstraierModule(Component):
             if repoinfo.get('type') != 'direct-svnfs':#'direct-svnfs'のリポジトリでない
                 continue
             #インデックスのパス
-            cs_index_path = self.env.config.get('searchhyperestraier', mrepstr+'.cs_index_path','')
-            if cs_index_path == '':#mrepstr+'.cs_index_path'がない
+            cs_index_path = self.config.get('searchhyperestraier', mrepstr+'.cs_index_path')
+            if not cs_index_path:  #mrepstr+'.cs_index_path'がない
                 continue
             if mrepstr != '': #defaultでない
                 mrepstr = '/' + mrepstr
@@ -229,33 +237,27 @@ class SearchChangesetHyperEstraierModule(Component):
                 text = self._get_innerText(text,node.childNodes)
         return text
 
+
 class SearchAttachmentHyperEstraierModule(Component):
 
     implements(ISearchSource)
 
     # ISearchProvider methods
     def get_search_filters(self, req):
-        if self.env.config.get('searchhyperestraier', 'att_index_path','')!='':
+        mod = SearchHyperEstraierModule(self.env)
+        if mod.att_index_path:
             yield ('attachmenthyperest', u'he:添付ファイル', 0)
 
     def get_search_results(self, req, terms, filters):
         if not 'attachmenthyperest' in filters:
             return
-        #estcmd.exeのパス
-        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd')
-        #estcmd.exeの引数
-        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS')
-        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs')
 
-        #インデックスのパス
-        att_index_path = self.env.config.get('searchhyperestraier', 'att_index_path','')
-        #コマンド実行時のエンコード(Pythonでの形式)
-        #estcmd_argと一致(?)させる必要有り。
-
-        #検索結果のパスの頭で削る文字列
-        #self.log.debug('attpath:%s' % os.path.normpath(self.env.path))
-        att_replace_left = os.path.join(os.path.normpath(self.env.path),'attachments')
-        #self.log.debug('attleft:%s' % att_replace_left)
+        mod = SearchHyperEstraierModule(self.env)
+        estcmd_path = mod.estcmd_path
+        estcmd_arg = mod.estcmd_arg
+        estcmd_encode = mod.estcmd_encode
+        att_index_path = mod.att_index_path
+        att_replace_left = os.path.join(os.path.normpath(self.env.path), 'attachments')
 
         #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,att_index_path,unicode(query,'utf-8').encode('CP932'))
         qline = ' '.join(terms)
@@ -269,7 +271,7 @@ class SearchAttachmentHyperEstraierModule(Component):
             err = 'Running (%s) failed: %s, %s.' % (cmdline, np.errorlevel,
                                                     np.err)
             raise Exception, err
-        if np.out == '': #添付ファイルフォルダに何も入ってない
+        if not np.out:  #添付ファイルフォルダに何も入ってない
             return
 
         dom = parseString(np.out)
@@ -319,36 +321,28 @@ class SearchAttachmentHyperEstraierModule(Component):
                 text = self._get_innerText(text,node.childNodes)
         return text
 
+
 class SearchDocumentHyperEstraierModule(Component):
 
     implements(ISearchSource)
 
     # ISearchProvider methods
     def get_search_filters(self, req):
-        if self.env.config.get('searchhyperestraier', 'doc_index_path','')!='' \
-        and self.env.config.get('searchhyperestraier', 'doc_replace_left','')!='' \
-        and self.env.config.get('searchhyperestraier', 'doc_url_left','')!='':
+        mod = SearchHyperEstraierModule(self.env)
+        if mod.doc_index_path and mod.doc_replace_left and mod.doc_url_left:
             yield ('documenthyperest', u'he:ドキュメント', 0)
 
     def get_search_results(self, req, terms, filters):
         if not 'documenthyperest' in filters:
             return
-        #estcmd.exeのパス
-        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd')
-        #estcmd.exeの引数
-        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS')
-        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs')
 
-        #インデックスのパス
-        doc_index_path = self.env.config.get('searchhyperestraier', 'doc_index_path','')
-        #コマンド実行時のエンコード(Pythonでの形式)
-        #estcmd_argと一致(?)させる必要有り。
-
-        #検索結果のパスの頭で削る文字列
-        doc_replace_left = self.env.config.get('searchhyperestraier', 'doc_replace_left','')
-
-        #tracやsvnと同じならびにくるドキュメントのフォルダ名
-        doc_url_left = self.env.config.get('searchhyperestraier', 'doc_url_left','doc')
+        mod = SearchHyperEstraierModule(self.env)
+        estcmd_path = mod.estcmd_path
+        estcmd_arg = mod.estcmd_arg
+        estcmd_encode = mod.estcmd_encode
+        doc_index_path = mod.doc_index_path
+        doc_replace_left = mod.doc_replace_left
+        doc_url_left = mod.doc_url_left
 
         #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,doc_index_path,unicode(query,'utf-8').encode('CP932'))
         qline = ' '.join(terms)
