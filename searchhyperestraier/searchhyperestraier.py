@@ -17,7 +17,7 @@ import os.path
 
 class SearchHyperEstraierModule(Component):
     implements(ISearchSource)
-    
+
     # ISearchProvider methods
     def get_search_filters(self, req):
         if req.perm.has_permission('BROWSER_VIEW'):
@@ -27,15 +27,15 @@ class SearchHyperEstraierModule(Component):
         if not 'repositoryhyperest' in filters:
             return
         #estcmd.exeのパス
-        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd') 
+        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd')
         #estcmd.exeの引数
-        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS') 
-        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs') 
+        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS')
+        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs')
         #Tracのブラウザへのリンクを作るか否か。
         #enabled:Tracのブラウザへのリンクを作る
         #上記以外:replace_left,url_leftで指定したURLへのリンクを作る
         browse_trac = self.env.config.get('searchhyperestraier', 'browse_trac','enabled')
-        
+
         #for multi repos
         for option in self.config['searchhyperestraier']:
             #リポジトリのパス
@@ -59,7 +59,7 @@ class SearchHyperEstraierModule(Component):
                 continue
             if mrepstr != '': #defaultでない
                 url_left = '/' + mrepstr + url_left
-            
+
             #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,index_path,unicode(query,'utf-8').encode('CP932'))
             qline = ' '.join(terms)
             cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,index_path,qline)
@@ -85,11 +85,11 @@ class SearchHyperEstraierModule(Component):
                 date = 0
                 detail = ""
                 author = "不明"
-                
+
                 #detailを生成
                 elem_array =  element.getElementsByTagName("snippet")
                 detail = self._get_innerText("",elem_array)
-                
+
                 #その他の属性を生成
                 attrelem_array = element.getElementsByTagName("attribute")
                 for attrelem in attrelem_array:
@@ -132,7 +132,7 @@ class SearchHyperEstraierModule(Component):
 
 class SearchChangesetHyperEstraierModule(Component):
     implements(ISearchSource)
-    
+
     # ISearchProvider methods
     def get_search_filters(self, req):
         if req.perm.has_permission('CHANGESET_VIEW'):
@@ -142,11 +142,11 @@ class SearchChangesetHyperEstraierModule(Component):
         if not 'changesethyperest' in filters:
             return
         #estcmd.exeのパス
-        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd') 
+        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd')
         #estcmd.exeの引数
-        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS') 
-        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs') 
-        
+        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS')
+        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs')
+
         #for multi repos
         for option in self.config['searchhyperestraier']:
             #リポジトリのパス
@@ -165,7 +165,7 @@ class SearchChangesetHyperEstraierModule(Component):
                 continue
             if mrepstr != '': #defaultでない
                 mrepstr = '/' + mrepstr
-            
+
             #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,cs_index_path,unicode(query,'utf-8').encode('CP932'))
             qline = ' '.join(terms)
             cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,cs_index_path,qline)
@@ -191,18 +191,18 @@ class SearchChangesetHyperEstraierModule(Component):
                 date = 0
                 detail = ""
                 author = "不明"
-                
+
                 #detailを生成
                 elem_array =  element.getElementsByTagName("snippet")
                 detail = self._get_innerText("",elem_array)
-                
+
                 #その他の属性を生成
                 attrelem_array = element.getElementsByTagName("attribute")
                 for attrelem in attrelem_array:
                     attr_name = attrelem.getAttribute("name")
                     attr_value = unicode(attrelem.getAttribute("value"))
                     #URLとタイトルを生成
-                    if attr_name == "_lreal": 
+                    if attr_name == "_lreal":
                         attr_value=attr_value.replace(".txt","")
                         end = len(attr_value)
                         for m in range(1,end):
@@ -211,7 +211,7 @@ class SearchChangesetHyperEstraierModule(Component):
                         attr_value = attr_value[(end-m+1):] + mrepstr #数字の文字列 + mrepstr
                         url = self.env.href('/changeset/' + attr_value )
                         title = "changeset:" + attr_value
-                    #更新日時を生成 
+                    #更新日時を生成
                     elif attr_name =="@mdate":
                         date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
                         self.log.debug('date:%s' % attr_value)
@@ -230,7 +230,7 @@ class SearchChangesetHyperEstraierModule(Component):
 
 class SearchAttachmentHyperEstraierModule(Component):
     implements(ISearchSource)
-    
+
     # ISearchProvider methods
     def get_search_filters(self, req):
         if self.env.config.get('searchhyperestraier', 'att_index_path','')!='':
@@ -240,21 +240,21 @@ class SearchAttachmentHyperEstraierModule(Component):
         if not 'attachmenthyperest' in filters:
             return
         #estcmd.exeのパス
-        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd') 
+        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd')
         #estcmd.exeの引数
-        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS') 
-        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs') 
-        
+        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS')
+        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs')
+
         #インデックスのパス
-        att_index_path = self.env.config.get('searchhyperestraier', 'att_index_path','') 
+        att_index_path = self.env.config.get('searchhyperestraier', 'att_index_path','')
         #コマンド実行時のエンコード(Pythonでの形式)
         #estcmd_argと一致(?)させる必要有り。
-        
+
         #検索結果のパスの頭で削る文字列
         #self.log.debug('attpath:%s' % os.path.normpath(self.env.path))
         att_replace_left = os.path.join(os.path.normpath(self.env.path),'attachments')
         #self.log.debug('attleft:%s' % att_replace_left)
-        
+
         #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,att_index_path,unicode(query,'utf-8').encode('CP932'))
         qline = ' '.join(terms)
         cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,att_index_path,qline)
@@ -269,7 +269,7 @@ class SearchAttachmentHyperEstraierModule(Component):
             raise Exception, err
         if np.out == '': #添付ファイルフォルダに何も入ってない
             return
-        
+
         dom = parseString(np.out)
         root = dom.documentElement
         #estresult_node = root.getElementsByTagName("document")[0]
@@ -281,11 +281,11 @@ class SearchAttachmentHyperEstraierModule(Component):
             date = 0
             detail = ""
             author = "不明"
-            
+
             #detailを生成
             elem_array =  element.getElementsByTagName("snippet")
             detail = self._get_innerText("",elem_array)
-            
+
             #その他の属性を生成
             attrelem_array = element.getElementsByTagName("attribute")
             for attrelem in attrelem_array:
@@ -319,7 +319,7 @@ class SearchAttachmentHyperEstraierModule(Component):
 
 class SearchDocumentHyperEstraierModule(Component):
     implements(ISearchSource)
-    
+
     # ISearchProvider methods
     def get_search_filters(self, req):
         if self.env.config.get('searchhyperestraier', 'doc_index_path','')!='' \
@@ -331,22 +331,22 @@ class SearchDocumentHyperEstraierModule(Component):
         if not 'documenthyperest' in filters:
             return
         #estcmd.exeのパス
-        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd') 
+        estcmd_path = self.env.config.get('searchhyperestraier', 'estcmd_path','estcmd')
         #estcmd.exeの引数
-        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS') 
-        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs') 
-        
+        estcmd_arg = self.env.config.get('searchhyperestraier', 'estcmd_arg','search -vx -sf -ic Shift_JIS')
+        estcmd_encode = self.env.config.get('searchhyperestraier', 'estcmd_encode','mbcs')
+
         #インデックスのパス
-        doc_index_path = self.env.config.get('searchhyperestraier', 'doc_index_path','') 
+        doc_index_path = self.env.config.get('searchhyperestraier', 'doc_index_path','')
         #コマンド実行時のエンコード(Pythonでの形式)
         #estcmd_argと一致(?)させる必要有り。
-        
+
         #検索結果のパスの頭で削る文字列
         doc_replace_left = self.env.config.get('searchhyperestraier', 'doc_replace_left','')
-        
+
         #tracやsvnと同じならびにくるドキュメントのフォルダ名
         doc_url_left = self.env.config.get('searchhyperestraier', 'doc_url_left','doc')
-        
+
         #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,doc_index_path,unicode(query,'utf-8').encode('CP932'))
         qline = ' '.join(terms)
         cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,doc_index_path,qline)
@@ -372,11 +372,11 @@ class SearchDocumentHyperEstraierModule(Component):
             date = 0
             detail = ""
             author = "不明"
-        
+
             #detailを生成
             elem_array =  element.getElementsByTagName("snippet")
             detail = self._get_innerText("",elem_array)
-        
+
             #その他の属性を生成
             attrelem_array = element.getElementsByTagName("attribute")
             for attrelem in attrelem_array:
