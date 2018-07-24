@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
-# SearchRepositoryWithHyperestraier plugin
 
-from trac.core import *
-#from trac.Search import ISearchSource
-from trac.search.api import ISearchSource # for Trac0.11
-from trac.util import NaivePopen
-from StringIO import StringIO
-import urllib
-import time
+from datetime import datetime
 from xml.dom.minidom import parseString
-import datetime
-from trac.util.datefmt import to_datetime, utc # for Trac0.11
-from trac.util.text import to_unicode # for Trac0.11
-from trac.versioncontrol import RepositoryManager
 import os.path
+import time
+import urllib
+
+from trac.core import Component, implements
+from trac.search.api import ISearchSource
+from trac.util import NaivePopen
+from trac.util.datefmt import to_datetime, utc
+from trac.util.text import to_unicode
+from trac.versioncontrol.api import RepositoryManager
+
 
 class SearchHyperEstraierModule(Component):
+
     implements(ISearchSource)
 
     # ISearchProvider methods
@@ -117,7 +117,7 @@ class SearchHyperEstraierModule(Component):
                     elif attr_name =="@mdate":
                         date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
                         self.log.debug('date:%s' % attr_value)
-                        date = to_datetime(datetime.datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
+                        date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
                 yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
         return
 
@@ -131,6 +131,7 @@ class SearchHyperEstraierModule(Component):
         return text
 
 class SearchChangesetHyperEstraierModule(Component):
+
     implements(ISearchSource)
 
     # ISearchProvider methods
@@ -215,7 +216,7 @@ class SearchChangesetHyperEstraierModule(Component):
                     elif attr_name =="@mdate":
                         date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
                         self.log.debug('date:%s' % attr_value)
-                        date = to_datetime(datetime.datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
+                        date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
                 yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
         return
 
@@ -229,6 +230,7 @@ class SearchChangesetHyperEstraierModule(Component):
         return text
 
 class SearchAttachmentHyperEstraierModule(Component):
+
     implements(ISearchSource)
 
     # ISearchProvider methods
@@ -304,7 +306,7 @@ class SearchAttachmentHyperEstraierModule(Component):
                 elif attr_name =="@mdate":
                     date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
                     self.log.debug('date:%s' % attr_value)
-                    date = to_datetime(datetime.datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
+                    date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
             yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
         return
 
@@ -318,6 +320,7 @@ class SearchAttachmentHyperEstraierModule(Component):
         return text
 
 class SearchDocumentHyperEstraierModule(Component):
+
     implements(ISearchSource)
 
     # ISearchProvider methods
@@ -399,7 +402,7 @@ class SearchDocumentHyperEstraierModule(Component):
                 elif attr_name =="@mdate":
                     date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
                     self.log.debug('date:%s' % attr_value)
-                    date = to_datetime(datetime.datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
+                    date = to_datetime(datetime(date[0],date[1],date[2],date[3],date[4],date[5],0,utc)) # for Trac0.11
             yield(url,title,date,to_unicode(author,'utf-8'),to_unicode(detail,'utf-8'))
         return
 
