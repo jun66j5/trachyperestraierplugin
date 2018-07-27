@@ -307,6 +307,8 @@ class SearchAttachmentHyperEstraierModule(Component):
                     attr_value = attr_value[len(att_replace_left) + 1:]
                     attr_value = attr_value.replace('\\', '/')
                     row = resolve_attachment_row(attr_value)
+                    if not row:
+                        break
                     att = Attachment(self.env, row['type'], row['id'],
                                      row['filename'])
                     resource = att.resource
