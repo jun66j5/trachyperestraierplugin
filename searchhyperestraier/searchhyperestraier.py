@@ -2,24 +2,32 @@
 
 from datetime import datetime
 from pkg_resources import parse_version
-from xml.dom.minidom import parseString
+from xml.dom import minidom
 import os.path
+import subprocess
 import time
 import urllib
 
 from trac import __version__ as VERSION
-from trac.core import Component, implements
+from trac.core import Component, TracError, implements
 from trac.attachment import Attachment
 from trac.config import BoolOption, Option, PathOption
 from trac.db.api import get_column_names
 from trac.resource import get_resource_url, get_resource_shortname
 from trac.search.api import ISearchSource
-from trac.util import NaivePopen
+from trac.util.compat import close_fds
 from trac.util.datefmt import from_utimestamp, to_datetime, utc
 from trac.versioncontrol.api import RepositoryManager
 
 
 _has_files_dir = parse_version(VERSION) >= parse_version('1.0')
+
+if os.name == 'nt':
+    import ctypes
+    _input_encoding = 'cp%d' % ctypes.windll.kernel32.GetConsoleOutputCP
+    del ctypes
+else:
+    _input_encoding = 'utf-8'
 
 
 class SearchHyperEstraierModule(Component):
@@ -28,9 +36,7 @@ class SearchHyperEstraierModule(Component):
 
     estcmd_path = Option('searchhyperestraier', 'estcmd_path', 'estcmd')
     estcmd_arg = Option('searchhyperestraier', 'estcmd_arg',
-                        'search -vx -sf -ic Shift_JIS')
-    estcmd_encode = Option('searchhyperestraier', 'estcmd_encode',
-                           'mbcs' if os.name == 'nt' else 'utf-8')
+                        'search -vx -sf -ic %s' % _input_encoding)
     browse_trac = BoolOption('searchhyperestraier', 'browse_trac', 'enabled')
     att_index_path = PathOption(
         'searchhyperestraier', 'att_index_path',
@@ -49,9 +55,6 @@ class SearchHyperEstraierModule(Component):
         if not 'repositoryhyperest' in filters:
             return
 
-        estcmd_path = self.estcmd_path
-        estcmd_arg = self.estcmd_arg
-        estcmd_encode = self.estcmd_encode
         browse_trac = self.browse_trac
 
         #for multi repos
@@ -78,20 +81,9 @@ class SearchHyperEstraierModule(Component):
             if mrepstr != '': #defaultでない
                 url_left = '/' + mrepstr + url_left
 
-            #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,index_path,unicode(query,'utf-8').encode('CP932'))
-            qline = ' '.join(terms)
-            cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,index_path,qline)
-            self.log.debug('SearchHyperEstraier:%r', cmdline)
-            cmdline = unicode(cmdline).encode(estcmd_encode)
-            np = NaivePopen(cmdline)
-            #self.log.debug('Result:%s', np.out)
-            if np.errorlevel or np.err:
-                err = 'Running (%s) failed: %s, %s.' % (cmdline, np.errorlevel,
-                                                        np.err)
-                raise Exception, err
-            if np.out=='': #何も入ってない
+            dom = self._search_index(index_path, terms)
+            if not dom:
                 continue
-            dom = parseString(np.out)
             root = dom.documentElement
             #estresult_node = root.getElementsByTagName("document")[0]
             element_array = root.getElementsByTagName("document")
@@ -137,6 +129,29 @@ class SearchHyperEstraierModule(Component):
                 yield(url,title,date,author,detail)
         return
 
+    def _search_index(self, index_path, terms):
+        args = [self.estcmd_path]
+        args.extend(self.estcmd_arg.split())
+        args.append(index_path)
+        args.extend(terms)
+        encoding = 'mbcs' if os.name == 'nt' else 'utf-8'
+        args = [arg.encode(encoding, 'replace')
+                if isinstance(arg, unicode) else arg
+                for arg in args]
+        proc = subprocess.Popen(args, close_fds=close_fds,
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        try:
+            stdout, stderr = proc.communicate(input='')
+        finally:
+            for f in (proc.stdin, proc.stdout, proc.stderr):
+                if f:
+                    f.close()
+        if proc.returncode != 0:
+            raise TracError('Unable to search index: %r' %
+                            stderr.decode(encoding))
+        return minidom.parseString(stdout) if stdout else None
+
 
 class SearchChangesetHyperEstraierModule(Component):
 
@@ -152,9 +167,6 @@ class SearchChangesetHyperEstraierModule(Component):
             return
 
         mod = SearchHyperEstraierModule(self.env)
-        estcmd_path = mod.estcmd_path
-        estcmd_arg = mod.estcmd_arg
-        estcmd_encode = mod.estcmd_encode
 
         #for multi repos
         for option in self.config['searchhyperestraier']:
@@ -175,20 +187,9 @@ class SearchChangesetHyperEstraierModule(Component):
             if mrepstr != '': #defaultでない
                 mrepstr = '/' + mrepstr
 
-            #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,cs_index_path,unicode(query,'utf-8').encode('CP932'))
-            qline = ' '.join(terms)
-            cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,cs_index_path,qline)
-            self.log.debug('SearchChangesetHyperEstraier:%r', cmdline)
-            cmdline = unicode(cmdline).encode(estcmd_encode)
-            np = NaivePopen(cmdline)
-            #self.log.debug('Result:%r', np.out)
-            if np.errorlevel or np.err:
-                err = 'Running (%s) failed: %s, %s.' % (cmdline, np.errorlevel,
-                                                        np.err)
-                raise Exception, err
-            if np.out=='': #何も入ってない
+            dom = mod._search_index(cs_index_path, terms)
+            if not dom:
                 continue
-            dom = parseString(np.out)
             root = dom.documentElement
             #estresult_node = root.getElementsByTagName("document")[0]
             element_array = root.getElementsByTagName("document")
@@ -243,23 +244,8 @@ class SearchAttachmentHyperEstraierModule(Component):
             return
 
         mod = SearchHyperEstraierModule(self.env)
-        estcmd_path = mod.estcmd_path
-        estcmd_arg = mod.estcmd_arg
-        estcmd_encode = mod.estcmd_encode
-        att_index_path = mod.att_index_path
-
-        #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,att_index_path,unicode(query,'utf-8').encode('CP932'))
-        qline = ' '.join(terms)
-        cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,att_index_path,qline)
-        self.log.debug('SearchHyperEstraier:%r', cmdline)
-        cmdline = unicode(cmdline).encode(estcmd_encode)
-        np = NaivePopen(cmdline)
-        #self.log.debug('Result:%r', np.out)
-        if np.errorlevel or np.err:
-            err = 'Running (%s) failed: %s, %s.' % (cmdline, np.errorlevel,
-                                                    np.err)
-            raise Exception, err
-        if not np.out:  #添付ファイルフォルダに何も入ってない
+        dom = mod._search_index(mod.att_index_path, terms)
+        if not dom:
             return
 
         db_version = self._get_db_version()
@@ -292,7 +278,6 @@ class SearchAttachmentHyperEstraierModule(Component):
         att_replace_left = self._get_attachments_dir(db_version)
         resolve_attachment_row = resolver_attachment_row()
 
-        dom = parseString(np.out)
         root = dom.documentElement
         #estresult_node = root.getElementsByTagName("document")[0]
         element_array = root.getElementsByTagName("document")
@@ -362,27 +347,12 @@ class SearchDocumentHyperEstraierModule(Component):
             return
 
         mod = SearchHyperEstraierModule(self.env)
-        estcmd_path = mod.estcmd_path
-        estcmd_arg = mod.estcmd_arg
-        estcmd_encode = mod.estcmd_encode
-        doc_index_path = mod.doc_index_path
         doc_replace_left = mod.doc_replace_left
         doc_url_left = mod.doc_url_left
-
-        #cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,doc_index_path,unicode(query,'utf-8').encode('CP932'))
-        qline = ' '.join(terms)
-        cmdline = "%s %s %s %s" % (estcmd_path,estcmd_arg,doc_index_path,qline)
-        self.log.debug('SearchHyperEstraier:%r', cmdline)
-        cmdline = unicode(cmdline).encode(estcmd_encode)
-        np = NaivePopen(cmdline)
-        #self.log.debug('Result:%r', np.out)
-        if np.errorlevel or np.err:
-            err = 'Running (%s) failed: %s, %s.' % (cmdline, np.errorlevel,
-                                                    np.err)
-            raise Exception, err
-        if np.out=='': #ドキュメントフォルダに何も入ってない
+        dom = mod._search_index(mod.doc_index_path, terms)
+        if not dom:
             return
-        dom = parseString(np.out)
+
         root = dom.documentElement
         #estresult_node = root.getElementsByTagName("document")[0]
         element_array = root.getElementsByTagName("document")
