@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 
 from datetime import datetime
+from pkg_resources import parse_version
 from xml.dom.minidom import parseString
 import os.path
 import time
 import urllib
 
+from trac import __version__ as VERSION
 from trac.core import Component, implements
 from trac.attachment import Attachment
 from trac.config import BoolOption, Option, PathOption
@@ -15,6 +17,9 @@ from trac.search.api import ISearchSource
 from trac.util import NaivePopen
 from trac.util.datefmt import from_utimestamp, to_datetime, utc
 from trac.versioncontrol.api import RepositoryManager
+
+
+_has_files_dir = parse_version(VERSION) >= parse_version('1.0')
 
 
 class SearchHyperEstraierModule(Component):
@@ -27,7 +32,10 @@ class SearchHyperEstraierModule(Component):
     estcmd_encode = Option('searchhyperestraier', 'estcmd_encode',
                            'mbcs' if os.name == 'nt' else 'utf-8')
     browse_trac = BoolOption('searchhyperestraier', 'browse_trac', 'enabled')
-    att_index_path = PathOption('searchhyperestraier', 'att_index_path', '')
+    att_index_path = PathOption(
+        'searchhyperestraier', 'att_index_path',
+        '../files/attachments-index' if _has_files_dir else
+        '../attachments-index')
     doc_index_path = PathOption('searchhyperestraier', 'doc_index_path', '')
     doc_replace_left = Option('searchhyperestraier', 'doc_replace_left', '')
     doc_url_left = Option('searchhyperestraier', 'doc_url_left', 'doc')
