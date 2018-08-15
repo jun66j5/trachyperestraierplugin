@@ -9,7 +9,7 @@ import time
 import urllib
 
 from trac import __version__ as VERSION
-from trac.core import Component, TracError, implements
+from trac.core import Component, implements
 from trac.attachment import Attachment
 from trac.config import BoolOption, Option, PathOption
 from trac.db.api import get_column_names
@@ -17,7 +17,9 @@ from trac.resource import get_resource_url, get_resource_shortname
 from trac.search.api import ISearchSource
 from trac.util.compat import close_fds
 from trac.util.datefmt import from_utimestamp, to_datetime, utc
+from trac.util.text import exception_to_unicode
 from trac.versioncontrol.api import RepositoryManager
+from trac.web.chrome import add_warning
 
 
 _has_files_dir = parse_version(VERSION) >= parse_version('1.0')
@@ -81,7 +83,7 @@ class SearchHyperEstraierModule(Component):
             if mrepstr != '': #defaultでない
                 url_left = '/' + mrepstr + url_left
 
-            dom = self._search_index(index_path, terms)
+            dom = self._search_index(req, index_path, terms)
             if not dom:
                 continue
             root = dom.documentElement
@@ -129,7 +131,7 @@ class SearchHyperEstraierModule(Component):
                 yield(url,title,date,author,detail)
         return
 
-    def _search_index(self, index_path, terms):
+    def _search_index(self, req, index_path, terms):
         args = [self.estcmd_path]
         args.extend(self.estcmd_arg.split())
         args.append(index_path)
@@ -147,10 +149,23 @@ class SearchHyperEstraierModule(Component):
             for f in (proc.stdin, proc.stdout, proc.stderr):
                 if f:
                     f.close()
-        if proc.returncode != 0:
-            raise TracError('Unable to search index: %r' %
-                            stderr.decode(encoding))
-        return minidom.parseString(stdout) if stdout else None
+        rc = proc.returncode
+        if rc != 0:
+            add_warning(req, 'Unable to search index: estcmd exits with %d' %
+                             rc)
+            self.log.error('Unable to search index: estcmd exits with %d '
+                           '(stdout=%r, stderr=%r)', rc, stdout, stderr)
+            return None
+        if not stdout:
+            return None
+        try:
+            return minidom.parseString(stdout)
+        except Exception, e:
+            add_warning(req, 'Unable to search index: %s' %
+                             exception_to_unicode(e))
+            self.log.error('Unable to search index: %r%s', stdout,
+                           exception_to_unicode(e, traceback=True))
+            return None
 
 
 class SearchChangesetHyperEstraierModule(Component):
@@ -187,7 +202,7 @@ class SearchChangesetHyperEstraierModule(Component):
             if mrepstr != '': #defaultでない
                 mrepstr = '/' + mrepstr
 
-            dom = mod._search_index(cs_index_path, terms)
+            dom = mod._search_index(req, cs_index_path, terms)
             if not dom:
                 continue
             root = dom.documentElement
@@ -244,7 +259,7 @@ class SearchAttachmentHyperEstraierModule(Component):
             return
 
         mod = SearchHyperEstraierModule(self.env)
-        dom = mod._search_index(mod.att_index_path, terms)
+        dom = mod._search_index(req, mod.att_index_path, terms)
         if not dom:
             return
 
@@ -349,7 +364,7 @@ class SearchDocumentHyperEstraierModule(Component):
         mod = SearchHyperEstraierModule(self.env)
         doc_replace_left = mod.doc_replace_left
         doc_url_left = mod.doc_url_left
-        dom = mod._search_index(mod.doc_index_path, terms)
+        dom = mod._search_index(req, mod.doc_index_path, terms)
         if not dom:
             return
 
