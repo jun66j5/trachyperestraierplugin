@@ -1,25 +1,37 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import with_statement
+
 from datetime import datetime
 from pkg_resources import parse_version
+from subprocess import PIPE, Popen
 from xml.dom import minidom
+import fnmatch
 import os.path
-import subprocess
+import re
+import shutil
+import tempfile
 import time
 import urllib
 
 from trac import __version__ as VERSION
-from trac.core import Component, implements
+from trac.admin.api import IAdminCommandProvider
 from trac.attachment import Attachment
-from trac.config import BoolOption, Option, PathOption
+from trac.config import BoolOption, ListOption, Option, PathOption
+from trac.core import Component, implements
 from trac.db.api import get_column_names
-from trac.resource import get_resource_url, get_resource_shortname
+from trac.env import Environment
+from trac.mimeview.api import Mimeview, get_mimetype
+from trac.resource import ResourceNotFound, get_resource_url, \
+                          get_resource_shortname
 from trac.search.api import ISearchSource
 from trac.util.compat import close_fds
-from trac.util.datefmt import from_utimestamp, to_datetime, utc
-from trac.util.text import exception_to_unicode
+from trac.util.datefmt import format_datetime, from_utimestamp, to_datetime, \
+                              utc
+from trac.util.text import exception_to_unicode, unicode_unquote
 from trac.versioncontrol.api import RepositoryManager
 from trac.web.chrome import add_warning
+from trac.web.href import Href
 
 
 _has_files_dir = parse_version(VERSION) >= parse_version('1.0')
@@ -47,8 +59,26 @@ class SearchHyperEstraierModule(Component):
     doc_index_path = PathOption('searchhyperestraier', 'doc_index_path', '')
     doc_replace_left = Option('searchhyperestraier', 'doc_replace_left', '')
     doc_url_left = Option('searchhyperestraier', 'doc_url_left', 'doc')
+    filters = ListOption('searchhyperestraier', 'filters', '',
+        doc=u"""\
+ファイル名に合わせてフィルタを `*.ext=filter` 形式で指定します。
+
+ * 複数のファイル名に対して同時にフィルタを指定したいときには `:` を使えます。
+ * フィルタの実行時にはファイル名が引数に渡されます。
+ * フィルタの出力形式に合わせて、フィルタの直前に `T@` (テキスト) `H@` (HTML) `M@` (MIME) を指定します。
+ * フィルタの出力は UTF-8 エンコーディングになるようにします。
+
+設定例:
+{{{#!ini
+[searchhyperestraier]
+filters = *.xls:*.doc:*.ppt=H@/usr/share/hyperestraier/filter/estfxmsotohtml,
+          *.pdf=H@/usr/share/hyperestraier/filter/estfxpdftohtml,
+          *.txt=T@/usr/share/hyperestraier/filter/estfxasis
+}}}
+""")
 
     # ISearchProvider methods
+
     def get_search_filters(self, req):
         if req.perm.has_permission('BROWSER_VIEW'):
             yield ('repositoryhyperest', u'he:リポジトリ', 0)
@@ -140,9 +170,8 @@ class SearchHyperEstraierModule(Component):
         args = [arg.encode(encoding, 'replace')
                 if isinstance(arg, unicode) else arg
                 for arg in args]
-        proc = subprocess.Popen(args, close_fds=close_fds,
-                                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
+        proc = Popen(args, close_fds=close_fds, stdin=PIPE, stdout=PIPE,
+                     stderr=PIPE)
         try:
             stdout, stderr = proc.communicate(input='')
         finally:
@@ -167,12 +196,35 @@ class SearchHyperEstraierModule(Component):
                            exception_to_unicode(e, traceback=True))
             return None
 
+    def _get_filters(self):
+        rv = []
+        for filter_ in self.filters:
+            patterns, cmd = [v.strip() for v in filter_.split('=', 1)]
+            patterns = re.compile(r'(?:%s)' %
+                                  '|'.join(fnmatch.translate(p.strip())
+                                           for p in patterns.split(':')))
+            if cmd.startswith(('T@', 'H@', 'M@')):
+                type_ = cmd[0:1]
+                cmd = cmd[2:]
+            else:
+                type_ = None
+            rv.append((patterns, type_, cmd))
+        return rv
+
+    def _get_mimetype(self, filename):
+        mimeview = Mimeview(self.env)
+        return get_mimetype(filename, None, mimeview.mime_map,
+                            mimeview.mime_map_patterns) or \
+               'application/octet-stream'
+
+
 
 class SearchChangesetHyperEstraierModule(Component):
 
     implements(ISearchSource)
 
     # ISearchProvider methods
+
     def get_search_filters(self, req):
         if req.perm.has_permission('CHANGESET_VIEW'):
             yield ('changesethyperest', u'he:チェンジセット', 0)
@@ -245,9 +297,16 @@ class SearchChangesetHyperEstraierModule(Component):
 
 class SearchAttachmentHyperEstraierModule(Component):
 
-    implements(ISearchSource)
+    implements(IAdminCommandProvider, ISearchSource)
+
+    # IAdminCommandProvider methods
+
+    def get_admin_commands(self):
+        yield ('searchhyperestraier gather attachments', '',
+               'Gather attachments', None, self._do_gather)
 
     # ISearchProvider methods
+
     def get_search_filters(self, req):
         mod = SearchHyperEstraierModule(self.env)
         att_index_path = mod.att_index_path
@@ -263,87 +322,126 @@ class SearchAttachmentHyperEstraierModule(Component):
         if not dom:
             return
 
-        db_version = self._get_db_version()
-        if db_version >= 29:  # Trac 1.0 or later
-            def attachment_path(env_path, row):
-                path = Attachment._get_path(env_path, row['type'],
-                                            row['id'], row['filename'])
-                path = path[len(att_replace_left) + 1:]
-                return path.replace('\\', '/')
-        else:
-            def attachment_path(env_path, row):
-                att = Attachment(self.env)
-                path = att._get_path(row['type'], row['id'],
-                                     row['filename'])
-                path = path[len(att_replace_left) + 1:]
-                return path.replace('\\', '/')
-
-        def resolver_attachment_row():
-            db = self.env.get_read_db()
-            cursor = db.cursor()
-            cursor.execute("SELECT * FROM attachment")
-            columns = get_column_names(cursor)
-            env_path = os.path.normpath(self.env.path)
-            paths = {}
-            for row in cursor:
-                row = dict(zip(columns, row))
-                paths[attachment_path(env_path, row)] = row
-            return paths.get
-
-        att_replace_left = self._get_attachments_dir(db_version)
-        resolve_attachment_row = resolver_attachment_row()
-
-        root = dom.documentElement
-        #estresult_node = root.getElementsByTagName("document")[0]
-        element_array = root.getElementsByTagName("document")
-        for element in element_array:
-            url = ""
-            title = ""
-            date = datetime.fromtimestamp(0, utc)
-            detail = ""
-            author = u"不明"
-
-            elem_array = element.getElementsByTagName("snippet")
-            detail = _get_inner_text(elem_array)
-
-            #その他の属性を生成
-            attrelem_array = element.getElementsByTagName("attribute")
-            for attrelem in attrelem_array:
-                attr_name = attrelem.getAttribute("name")
-                attr_value = unicode(attrelem.getAttribute("value")) #添付ファイルはパスがquoteされたものになっている
-                if attr_name == "_lreal":
-                    attr_value = attr_value[len(att_replace_left) + 1:]
-                    attr_value = attr_value.replace('\\', '/')
-                    row = resolve_attachment_row(attr_value)
-                    if not row:
-                        break
-                    att = Attachment(self.env, row['type'], row['id'],
-                                     row['filename'])
-                    resource = att.resource
-                    url = get_resource_url(self.env, resource, req.href)
-                    title = get_resource_shortname(self.env, resource)
-                    date = from_utimestamp(row['time'])
-                    author = row['author']
-                    yield url, title, date, author, detail
-                    break
+        for node in dom.documentElement.getElementsByTagName('document'):
+            detail = _get_inner_text(node.getElementsByTagName('snippet'))
+            uri = unicode_unquote(node.getAttribute('uri'))
+            if uri.startswith('attachment:/'):
+                segments = uri[12:].split('/')
+                type_ = segments[0]
+                id_ = '/'.join(segments[1:-1])
+                filename = segments[-1]
+                try:
+                    att = Attachment(self.env, type_, id_, filename)
+                except ResourceNotFound:
+                    continue
+                url = get_resource_url(self.env, att.resource, req.href)
+                title = get_resource_shortname(self.env, att.resource)
+                yield url, title, att.date, att.author, detail
         return
 
     # Internal methods
 
-    def _get_db_version(self):
-        if hasattr(self.env, 'database_version'):
+    @property
+    def _estcmd_path(self):
+        return SearchHyperEstraierModule(self.env).estcmd_path
+
+    if hasattr(Environment, 'database_version'):
+        @property
+        def _db_version(self):
             return self.env.database_version
-        else:
+    else:
+        @property
+        def _db_version(self):
             return self.env.get_version()
 
-    def _get_attachments_dir(self, version):
-        if hasattr(self.env, 'attachments_dir'):  # Trac 1.3.1 or later
-            return self.env.attachments_dir
-        env_path = os.path.normpath(self.env.path)
-        if version >= 29:  # Trac 1.0 or later
-            return os.path.join(env_path, 'files', 'attachments')
+    def _popen(self, *args, **kwargs):
+        kwargs.setdefault('close_fds', close_fds)
+        proc = Popen(*args, **kwargs)
+        return proc.wait()
+
+    def _do_gather(self):
+        mod = SearchHyperEstraierModule(self.env)
+
+        if self._db_version >= 29:  # Trac 1.0 or later
+            def attachment_path(row):
+                return Attachment._get_path(self.env.path, row['type'],
+                                            row['id'], row['filename'])
         else:
-            return os.path.join(env_path, 'attachments')
+            def attachment_path(row):
+                att = Attachment(self.env)
+                return att._get_path(row['type'], row['id'], row['filename'])
+
+        filters = mod._get_filters()
+        dir_ = tempfile.mkdtemp()
+        try:
+            with self.env.db_query as db:
+                cursor = db.cursor()
+                cursor.execute("SELECT * FROM attachment")
+                columns = get_column_names(cursor)
+                for idx, row in enumerate(cursor):
+                    row = dict(zip(columns, row))
+                    for patterns, filter_type, cmd in filters:
+                        if not patterns.match(row['filename']):
+                            continue
+                        src_file = attachment_path(row)
+                        dst_file = os.path.join(dir_, '%08d.est' % idx)
+                        self._create_draft(dst_file, src_file, filter_type,
+                                           cmd, row)
+                        break
+                self._popen(args=(self._estcmd_path, 'gather',
+                                  mod.att_index_path, dir_))
+        finally:
+            shutil.rmtree(dir_)
+
+    def _create_draft(self, dst_file, src_file, filter_type, cmd, row):
+        tmp1_file = dst_file + '.tmp1'
+        tmp2_file = dst_file + '.tmp2'
+        try:
+            with open(tmp2_file, 'wb+') as tmp2:
+                with open(tmp1_file, 'wb+') as tmp1:
+                    self._popen((cmd, src_file), stdout=tmp1)
+                    tmp1.seek(0, 0)
+                    args = [self._estcmd_path, 'draft']
+                    if filter_type:
+                        args.append({'T': '-ft', 'H': '-fh', 'M': '-fm'}
+                                    .get(filter_type))
+                    self._popen(args=args, stdin=tmp1, stdout=tmp2)
+                with open(dst_file, 'wb') as dst:
+                    tmp2.seek(0, 0)
+                    headers = {}
+                    while True:
+                        line = tmp2.readline()
+                        line = line.rstrip('\r\n')
+                        if not line:
+                            break
+                        key, val = line.split('=', 1)
+                        headers[key] = val
+                    filename = row['filename']
+                    mdate = from_utimestamp(row['time'])
+                    headers['@uri'] = Href('attachment:') \
+                                      (row['type'], row['id'], filename)
+                    headers['@mdate'] = format_datetime(mdate, 'iso8601', utc)
+                    headers['@size'] = str(row['size'])
+                    headers['@type'] = SearchHyperEstraierModule(self.env) \
+                                       ._get_mimetype(filename)
+                    headers['_lpath'] = 'file://%s' % \
+                                        src_file.replace('\\', '/')
+                    headers['_lreal'] = src_file
+                    headers['_lfile'] = os.path.basename(src_file)
+                    for key, val in headers.iteritems():
+                        if isinstance(val, unicode):
+                            val = val.encode('utf-8')
+                        dst.write('%s=%s\n' % (key, val))
+                    dst.write('\n')
+                    while True:
+                        chunk = tmp2.read(4096)
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+        finally:
+            for path in (tmp1_file, tmp2_file):
+                if os.path.exists(path):
+                    os.remove(path)
 
 
 class SearchDocumentHyperEstraierModule(Component):
@@ -351,6 +449,7 @@ class SearchDocumentHyperEstraierModule(Component):
     implements(ISearchSource)
 
     # ISearchProvider methods
+
     def get_search_filters(self, req):
         mod = SearchHyperEstraierModule(self.env)
         if mod.doc_index_path and mod.doc_replace_left and \
