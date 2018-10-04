@@ -18,7 +18,7 @@ from trac import __version__ as VERSION
 from trac.admin.api import IAdminCommandProvider
 from trac.attachment import Attachment
 from trac.config import BoolOption, ListOption, Option, PathOption
-from trac.core import Component, implements
+from trac.core import Component, TracError, implements
 from trac.db.api import get_column_names
 from trac.env import Environment
 from trac.mimeview.api import Mimeview, get_mimetype
@@ -217,6 +217,21 @@ filters = *.xls:*.doc:*.ppt=H@/usr/share/hyperestraier/filter/estfxmsotohtml,
                             mimeview.mime_map_patterns) or \
                'application/octet-stream'
 
+    def _verify_estcmd_path(self):
+        args = (self.estcmd_path, '--version')
+        try:
+            with open(os.devnull, 'r') as stdin:
+                with open(os.devnull, 'a+') as stdout:
+                    with open(os.devnull, 'a+', 0) as stderr:
+                        proc = Popen(args, close_fds=close_fds, stdin=stdin,
+                                     stdout=stdout, stderr=stderr)
+                        rv = proc.wait()
+        except EnvironmentError, e:
+            raise TracError('Unable to execute estcmd: %r (%s)' %
+                            (args, exception_to_unicode(e)))
+        else:
+            if rv != 0:
+                raise TracError('estcmd exits with %d: %r' % (rv, args))
 
 
 class SearchChangesetHyperEstraierModule(Component):
@@ -361,6 +376,7 @@ class SearchAttachmentHyperEstraierModule(Component):
 
     def _do_gather(self):
         mod = SearchHyperEstraierModule(self.env)
+        mod._verify_estcmd_path()
 
         if self._db_version >= 29:  # Trac 1.0 or later
             def attachment_path(row):
