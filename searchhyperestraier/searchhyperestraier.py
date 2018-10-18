@@ -38,7 +38,7 @@ _has_files_dir = parse_version(VERSION) >= parse_version('1.0')
 
 if os.name == 'nt':
     import ctypes
-    _input_encoding = 'cp%d' % ctypes.windll.kernel32.GetConsoleOutputCP
+    _input_encoding = 'cp%d' % ctypes.windll.kernel32.GetConsoleOutputCP()
     del ctypes
 else:
     _input_encoding = 'utf-8'
