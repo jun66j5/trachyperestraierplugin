@@ -29,7 +29,7 @@ from trac.search.api import ISearchSource
 from trac.util.compat import close_fds
 from trac.util.datefmt import format_datetime, from_utimestamp, to_datetime, \
                               utc
-from trac.util.text import exception_to_unicode, unicode_unquote
+from trac.util.text import exception_to_unicode, printerr, unicode_unquote
 from trac.versioncontrol.api import RepositoryManager
 from trac.web.chrome import add_warning
 from trac.web.href import Href
@@ -69,12 +69,19 @@ class SearchHyperEstraierModule(Component):
  * フィルタの出力形式に合わせて、フィルタの直前に `T@` (テキスト) `H@` (HTML) `M@` (MIME) を指定します。
  * フィルタの出力は UTF-8 エンコーディングになるようにします。
 
-設定例:
+設定例1:
 {{{#!ini
 [searchhyperestraier]
 filters = *.xls:*.doc:*.ppt=H@/usr/share/hyperestraier/filter/estfxmsotohtml,
           *.pdf=H@/usr/share/hyperestraier/filter/estfxpdftohtml,
           *.txt=T@/usr/share/hyperestraier/filter/estfxasis
+}}}
+
+設定例2:
+{{{#!ini
+[searchhyperestraier]
+filters = *.xls:*.xlsx:*.doc:*.docx:*.ppt:*.pptx=T@C:\\apps\\xdoc2txt.exe -i -p -8,
+          *=T@C:\\apps\\xdoc2txt.exe -i -8
 }}}
 """)
 
@@ -406,6 +413,7 @@ class SearchAttachmentHyperEstraierModule(Component):
                 cursor = db.cursor()
                 cursor.execute("SELECT * FROM attachment")
                 columns = get_column_names(cursor)
+                skipped = 0
                 for idx, row in enumerate(cursor):
                     row = dict(zip(columns, row))
                     for patterns, filter_type, cmd in filters:
@@ -416,6 +424,14 @@ class SearchAttachmentHyperEstraierModule(Component):
                         self._create_draft(dst_file, src_file, filter_type,
                                            cmd, row)
                         break
+                    else:
+                        self.log.warning("Skipped '%(filename)s' in %(type)s:"
+                                         "%(id)s", row['filename'],
+                                         row['type'], row['id'])
+                        skipped += 1
+                if skipped > 0:
+                    self.log.warning('Skipped %d attachments', skipped)
+                    printerr('Skipped %d attachments' % skipped)
                 self._popen(args=(self._estcmd_path, 'gather',
                                   mod.att_index_path, dir_))
         finally:
