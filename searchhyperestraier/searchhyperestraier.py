@@ -388,6 +388,8 @@ class SearchAttachmentHyperEstraierModule(Component):
                 return att._get_path(row['type'], row['id'], row['filename'])
 
         filters = mod._get_filters()
+        if not filters:
+            raise TracError('filters option is empty')
         dir_ = tempfile.mkdtemp()
         try:
             with self.env.db_query as db:
