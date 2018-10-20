@@ -341,7 +341,10 @@ class SearchAttachmentHyperEstraierModule(Component):
 
         for node in dom.documentElement.getElementsByTagName('document'):
             detail = _get_inner_text(node.getElementsByTagName('snippet'))
-            uri = unicode_unquote(node.getAttribute('uri'))
+            uri = node.getAttribute('uri')
+            if isinstance(uri, unicode):
+                uri = uri.encode('utf-8')
+            uri = unicode_unquote(uri)
             if uri.startswith('attachment:/'):
                 segments = uri[12:].split('/')
                 type_ = segments[0]
