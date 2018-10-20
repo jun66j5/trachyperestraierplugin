@@ -9,6 +9,7 @@ from xml.dom import minidom
 import fnmatch
 import os.path
 import re
+import shlex
 import shutil
 import tempfile
 import time
@@ -208,6 +209,7 @@ filters = *.xls:*.doc:*.ppt=H@/usr/share/hyperestraier/filter/estfxmsotohtml,
                 cmd = cmd[2:]
             else:
                 type_ = None
+            cmd = _shlex_split(cmd)
             rv.append((patterns, type_, cmd))
         return rv
 
@@ -369,9 +371,14 @@ class SearchAttachmentHyperEstraierModule(Component):
         def _db_version(self):
             return self.env.get_version()
 
-    def _popen(self, *args, **kwargs):
+    def _popen(self, **kwargs):
         kwargs.setdefault('close_fds', close_fds)
-        proc = Popen(*args, **kwargs)
+        try:
+            proc = Popen(**kwargs)
+        except EnvironmentError as e:
+            self.log.warning('Unable to execute: %r%s', kwargs.get('args'),
+                             exception_to_unicode(e, traceback=True))
+            raise TracError('Unable to execute: %s' % repr(kwargs.get('args')))
         return proc.wait()
 
     def _do_gather(self):
@@ -417,7 +424,7 @@ class SearchAttachmentHyperEstraierModule(Component):
         try:
             with open(tmp2_file, 'wb+') as tmp2:
                 with open(tmp1_file, 'wb+') as tmp1:
-                    self._popen((cmd, src_file), stdout=tmp1)
+                    self._popen(args=(cmd + (src_file,)), stdout=tmp1)
                     tmp1.seek(0, 0)
                     args = [self._estcmd_path, 'draft']
                     if filter_type:
@@ -536,3 +543,12 @@ def _get_inner_text(node_array):
         else:
             return _get_inner_text(node.childNodes)
     return u''.join(to_text(node) for node in node_array)
+
+
+def _shlex_split(value):
+    if isinstance(value, unicode):
+        value = value.encode('utf-8')
+    l = shlex.shlex(value, posix=True)
+    l.escape = ''
+    l.whitespace_split = True
+    return tuple(l)
