@@ -39,10 +39,10 @@ _has_files_dir = parse_version(VERSION) >= parse_version('1.0')
 
 if os.name == 'nt':
     import ctypes
-    _input_encoding = 'cp%d' % ctypes.windll.kernel32.GetConsoleOutputCP()
+    _fs_encoding = 'cp%d' % ctypes.windll.kernel32.GetConsoleOutputCP()
     del ctypes
 else:
-    _input_encoding = 'utf-8'
+    _fs_encoding = 'utf-8'
 
 
 class SearchHyperEstraierModule(Component):
@@ -51,7 +51,7 @@ class SearchHyperEstraierModule(Component):
 
     estcmd_path = Option('searchhyperestraier', 'estcmd_path', 'estcmd')
     estcmd_arg = Option('searchhyperestraier', 'estcmd_arg',
-                        'search -vx -sf -ic %s' % _input_encoding)
+                        'search -vx -sf -ic %s' % _fs_encoding)
     browse_trac = BoolOption('searchhyperestraier', 'browse_trac', 'enabled')
     att_index_path = PathOption(
         'searchhyperestraier', 'att_index_path',
@@ -153,14 +153,16 @@ filters = *.xls:*.xlsx:*.doc:*.docx:*.ppt:*.pptx=T@C:\\apps\\xdoc2txt.exe -i -p 
                     #        url = url_left + attr_value
                     #        title = url_left + attr_value
                     if attr_name == "_lpath": #s-jisをquoteしたもの("file:///C|/TracLight/…"の形式)
-                        attr_value = urllib.unquote(attr_value).encode('raw_unicode_escape').decode('CP932')
+                        attr_value = _decode_urlencoded_value(attr_value,
+                                                              _fs_encoding)
                         attr_value = attr_value[(len('file:///')+len(replace_left)):]
                         if browse_trac:
                             url = self.env.href.browser(url_left + attr_value)
-                            title = "source:"+ urllib.unquote(url).encode('raw_unicode_escape').decode('utf-8')
+                            title = "source:" + \
+                                    _decode_urlencoded_value(url, 'utf-8')
                         else:
                             url = url_left + attr_value
-                            title = urllib.unquote(url).encode('raw_unicode_escape').decode('utf-8')
+                            title = _decode_urlencoded_value(url, 'utf-8')
                     #更新日時を生成
                     elif attr_name =="@mdate":
                         date = time.strptime(attr_value,"%Y-%m-%dT%H:%M:%SZ")
@@ -533,7 +535,8 @@ class SearchDocumentHyperEstraierModule(Component):
                 #    url = urllib.quote(title.encode('utf-8'))
                 #    title = '/' + title
                 if attr_name == "_lpath": #s-jisをquoteしたもの("file:///C|/TracLight/…"の形式)
-                    attr_value = urllib.unquote(attr_value).encode('raw_unicode_escape').decode('CP932')
+                    attr_value = _decode_urlencoded_value(attr_value,
+                                                          _fs_encoding)
                     attr_value = attr_value[(len('file:///')+len(doc_replace_left)):]
                     #url = doc_url_left + attr_value
                     #title = '/' + urllib.unquote(url)
@@ -567,3 +570,10 @@ def _shlex_split(value):
     l.escape = ''
     l.whitespace_split = True
     return tuple(l)
+
+
+def _decode_urlencoded_value(value, encoding):
+    value = urllib.unquote(value)
+    value = value.encode('raw_unicode_escape')
+    value = value.decode(encoding)
+    return value
