@@ -468,10 +468,6 @@ class SearchAttachmentHyperEstraierModule(Component):
                     headers['@size'] = str(row['size'])
                     headers['@type'] = SearchHyperEstraierModule(self.env) \
                                        ._get_mimetype(filename)
-                    headers['_lpath'] = 'file://%s' % \
-                                        src_file.replace('\\', '/')
-                    headers['_lreal'] = src_file
-                    headers['_lfile'] = os.path.basename(src_file)
                     for key, val in headers.iteritems():
                         if isinstance(val, unicode):
                             val = val.encode('utf-8')
