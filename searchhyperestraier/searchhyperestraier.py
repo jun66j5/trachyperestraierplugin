@@ -427,9 +427,9 @@ class SearchAttachmentHyperEstraierModule(Component):
                                            cmd, row)
                         break
                     else:
-                        self.log.warning("Skipped '%(filename)s' in %(type)s:"
-                                         "%(id)s", row['filename'],
-                                         row['type'], row['id'])
+                        self.log.warning("Skipped '%s' in %s:%s",
+                                         row['filename'], row['type'],
+                                         row['id'])
                         skipped += 1
                 if skipped > 0:
                     self.log.warning('Skipped %d attachments', skipped)
