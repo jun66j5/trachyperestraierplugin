@@ -38,9 +38,28 @@ from trac.web.href import Href
 _has_files_dir = parse_version(VERSION) >= parse_version('1.0')
 
 if os.name == 'nt':
-    import ctypes
-    _fs_encoding = 'cp%d' % ctypes.windll.kernel32.GetConsoleOutputCP()
-    del ctypes
+    def _get_fs_encoding():
+        import ctypes
+        MAX_DEFAULTCHAR = 2
+        MAX_LEADBYTES = 12
+        MAX_PATH = 260
+        CP_ACP = 0
+        class CPInfoExW(ctypes.Structure):
+            _fields_ = (
+                ('MaxCharSize', ctypes.c_uint),
+                ('DefaultChar', ctypes.c_byte * MAX_DEFAULTCHAR),
+                ('LeadByte', ctypes.c_byte * MAX_LEADBYTES),
+                ('UnicodeDefaultChar', ctypes.c_wchar),
+                ('CodePage', ctypes.c_uint),
+                ('CodePageName', ctypes.c_wchar * MAX_PATH),
+            )
+        buf = CPInfoExW()
+        if ctypes.windll.kernel32.GetCPInfoExW(CP_ACP, 0, buf) != 0:
+            return 'cp%d' % buf.CodePage
+        else:
+            return 'mbcs'
+    _fs_encoding = _get_fs_encoding()
+    del _get_fs_encoding
 else:
     _fs_encoding = 'utf-8'
 
