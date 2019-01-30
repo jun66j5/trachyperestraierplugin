@@ -44,6 +44,7 @@ if os.name == 'nt':
         MAX_LEADBYTES = 12
         MAX_PATH = 260
         CP_ACP = 0
+        GetCPInfoExW = ctypes.windll.kernel32.GetCPInfoExW
         class CPInfoExW(ctypes.Structure):
             _fields_ = (
                 ('MaxCharSize', ctypes.c_uint),
@@ -54,7 +55,7 @@ if os.name == 'nt':
                 ('CodePageName', ctypes.c_wchar * MAX_PATH),
             )
         buf = CPInfoExW()
-        if ctypes.windll.kernel32.GetCPInfoExW(CP_ACP, 0, buf) != 0:
+        if GetCPInfoExW(CP_ACP, 0, ctypes.byref(buf)) != 0:
             return 'cp%d' % buf.CodePage
         else:
             return 'mbcs'
